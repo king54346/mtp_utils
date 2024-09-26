@@ -143,6 +143,7 @@ pub fn list_files(path: String, recursive: bool, detail: bool) -> Result<(), Box
     Ok(())
 }
 
+
 fn show_file_or_folder_with_details(info: &ContentObjectInfo, path: &str) -> Result<bool, Box<dyn std::error::Error>> {
     println!(
         "[{:<4}] {:<19} {:<19} {}",

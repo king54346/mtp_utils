@@ -18,7 +18,7 @@ pub fn get_path_type(path: &str) -> PathType {
         PathType::Local
     }
 }
-
+// 定义设备存储路径，例如：device:storage:path
 #[derive(Debug, Eq, PartialEq)]
 pub struct DeviceStoragePath {
     pub device_name: String,

@@ -1,5 +1,5 @@
-use crate::glob::path_matcher::{create_path_pattern_matcher, PathMatcher, PathMatchingState};
-use crate::list::{ list_devices, list_device_storages};
+use crate::common::path_matcher::{create_path_pattern_matcher, PathMatcher, PathMatchingState};
+use crate::list::{list_devices, list_device_storages};
 use crate::path::{DeviceStoragePath, SEPARATORS};
 use crate::wpd::device::{ContentObjectInfo, ContentObjectIterator, Device};
 use crate::wpd::manager::{DeviceInfo, Manager};

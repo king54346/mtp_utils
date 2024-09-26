@@ -1,25 +1,94 @@
 mod find;
 mod list;
 mod wpd;
-
 pub mod path;
 mod common;
-mod copy;
-mod command;
+pub mod copy_operate;
+pub mod copy;
+
+use std::error::Error;
+use clap::{Parser, Subcommand};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+use crate::list::{list_files, list_storages};
 
 #[derive(Debug)]
 pub struct Paths {
     src: String,
     dest: String,
 }
+#[derive(Subcommand)]
+enum Commands {
+    #[clap(about = "List all device's storages ")]
+    ListStorages {
+    },
+    #[clap(about = "List files in a storage")]
+    ListFiles {
+        #[clap(value_parser, help ="The path to list files, e.g. \"<device>:<storage>:<path>\"")]
+        path: String, //必填
+        #[clap(short = 'r', long, help ="List files recursively")]
+        recursive: bool,
+        #[clap(short = 'd', long,help ="Show file details")]
+        detail: bool,
+    },
+    #[clap(about = "Copy files from source to destination")]
+    Copy {
+        #[clap(value_parser,help ="The source path to copy from, e.g. \"<device>:<storage>:<path>\"")]
+        src: String,
+        #[clap(value_parser,help ="The destination path to copy to, e.g. \"<device>:<storage>:<path>\"")]
+        dest: String,
+        #[clap(short = 'r', long,help ="Copy files recursively")]
+        recursive: bool,
+        #[clap(short = 'm', long,help ="Mirror the source to the destination")]
+        mirror: bool,
+    },
+}
 
+#[derive(Parser)]
+#[command(name = "mtp_util")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
 fn main() {
     env_logger::init();
-
+    let cli = Cli::parse();
+    match &cli.command {
+        Commands::ListStorages { } => {
+            unsafe { CoInitializeEx(Some(std::ptr::null_mut()), COINIT_MULTITHREADED).ok().unwrap(); }
+            match list_storages() {
+                Ok(_) => {}
+                Err(err) => {
+                    println!("Error: {}", err);
+                }
+            }
+        }
+        Commands::ListFiles { path, recursive, detail } => {
+            unsafe { CoInitializeEx(Some(std::ptr::null_mut()), COINIT_MULTITHREADED).ok().unwrap(); }
+            match list_files(path.clone(),*recursive,*detail) {
+                Ok(_) => {}
+                Err(err) => {
+                    println!("Error: {}", err);
+                }
+            }
+        }
+        Commands::Copy { src, dest, recursive, mirror } => {
+            unsafe { CoInitializeEx(Some(std::ptr::null_mut()), COINIT_MULTITHREADED).ok().unwrap(); }
+            let paths = Paths {
+                src: src.clone(),
+                dest: dest.clone(),
+            };
+            match copy::copy(&paths,  *recursive, *mirror) {
+                Ok(_) => {
+                    println!("Copy successfully.");
+                }
+                Err(err) => {
+                    println!("Error: {}", err);
+                }
+            }
+        }
+    }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -114,6 +183,4 @@ mod tests {
         unsafe { CoInitializeEx(Some(std::ptr::null_mut()), COINIT_MULTITHREADED).ok().unwrap(); }
         list_files("Redmi K70:内部存储设备:/Pictures".to_string(), true, true).unwrap();
     }
-
-
 }

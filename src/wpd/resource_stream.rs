@@ -2,7 +2,7 @@ use windows::core::{Error, Interface};
 use windows::Win32::Devices::PortableDevices::IPortableDeviceDataStream;
 use windows::Win32::Foundation::STG_E_REVERTED;
 use windows::Win32::System::Com::{IStream, STGC_DEFAULT};
-use crate::glob::file_reader::FileReader;
+use crate::common::file_reader::FileReader;
 use crate::wpd::utils::IDStr;
 use super::{device::ContentObject, utils::WStrPtr};
 
