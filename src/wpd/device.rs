@@ -1,19 +1,19 @@
 use std::fmt::Debug;
-use windows::core::{Error, GUID, PWSTR, PROPVARIANT as propvar};
+use windows::core::{Error, GUID, PWSTR, PROPVARIANT as propvar, PCWSTR};
 use windows::core::imp::{PROPVARIANT};
-use windows::Win32::Devices::PortableDevices::{IEnumPortableDeviceObjectIDs, IPortableDevice, IPortableDeviceContent, IPortableDeviceKeyCollection, IPortableDeviceProperties, IPortableDevicePropVariantCollection, IPortableDeviceResources, IPortableDeviceValues, PORTABLE_DEVICE_DELETE_WITH_RECURSION, PortableDevice, PortableDeviceKeyCollection, PortableDeviceManager, PortableDevicePropVariantCollection, PortableDeviceValues, WPD_CONTENT_TYPE_FOLDER, WPD_CONTENT_TYPE_FUNCTIONAL_OBJECT, WPD_CONTENT_TYPE_GENERIC_FILE, WPD_FUNCTIONAL_CATEGORY_DEVICE, WPD_FUNCTIONAL_CATEGORY_STORAGE, WPD_FUNCTIONAL_OBJECT_CATEGORY, WPD_OBJECT_CAN_DELETE, WPD_OBJECT_CONTENT_TYPE, WPD_OBJECT_DATE_CREATED, WPD_OBJECT_DATE_MODIFIED, WPD_OBJECT_FORMAT, WPD_OBJECT_FORMAT_ALL, WPD_OBJECT_ISHIDDEN, WPD_OBJECT_ISSYSTEM, WPD_OBJECT_NAME, WPD_OBJECT_ORIGINAL_FILE_NAME, WPD_OBJECT_PARENT_ID, WPD_OBJECT_SIZE, WPD_RESOURCE_DEFAULT};
+use windows::Win32::Devices::PortableDevices::{IEnumPortableDeviceObjectIDs, IPortableDevice, IPortableDeviceContent, IPortableDeviceKeyCollection, IPortableDeviceProperties, IPortableDevicePropVariantCollection, IPortableDeviceResources, IPortableDeviceValues, PORTABLE_DEVICE_DELETE_WITH_RECURSION, PortableDevice, PortableDeviceKeyCollection, PortableDevicePropVariantCollection, PortableDeviceValues, WPD_CONTENT_TYPE_FOLDER, WPD_CONTENT_TYPE_FUNCTIONAL_OBJECT, WPD_CONTENT_TYPE_GENERIC_FILE, WPD_FUNCTIONAL_CATEGORY_DEVICE, WPD_FUNCTIONAL_CATEGORY_STORAGE, WPD_FUNCTIONAL_OBJECT_CATEGORY, WPD_OBJECT_CAN_DELETE, WPD_OBJECT_CONTENT_TYPE, WPD_OBJECT_DATE_CREATED, WPD_OBJECT_DATE_MODIFIED, WPD_OBJECT_FORMAT, WPD_OBJECT_FORMAT_ALL, WPD_OBJECT_ISHIDDEN, WPD_OBJECT_ISSYSTEM, WPD_OBJECT_NAME, WPD_OBJECT_ORIGINAL_FILE_NAME, WPD_OBJECT_PARENT_ID, WPD_OBJECT_SIZE, WPD_RESOURCE_DEFAULT};
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL, IStream};
 use crate::wpd::manager::DeviceInfo;
 use crate::wpd::resource_stream::{ResourceReader, ResourceWriter};
-use crate::wpd::utils::{IDStr, WStrBuf, WStrPtr};
 
+#[derive(Debug)]
 pub struct ContentObject {
-    pub id: IDStr,
+    pub id: PWSTR,
 }
 
 impl ContentObject {
-    pub fn new(id: IDStr) -> ContentObject {
+    pub fn new(id: PWSTR) -> ContentObject {
         ContentObject { id }
     }
 }
@@ -23,14 +23,6 @@ impl Clone for ContentObject {
         ContentObject {
             id: self.id.clone(),
         }
-    }
-}
-
-impl Debug for ContentObject {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ContentObject")
-            .field("id", &self.id)
-            .finish()
     }
 }
 
@@ -119,7 +111,7 @@ impl Device {
         };
 
         unsafe {
-            device.Open(info.id.clone().as_pwstr(), &values)?;
+            device.Open(info.id.clone(), &values)?;
         }
         // 获取device的内容、属性和资源
         let content = unsafe { device.Content()? };
@@ -136,7 +128,7 @@ impl Device {
     }
 
     pub fn get_root_object(&self) -> ContentObject {
-        ContentObject::new(IDStr::create_empty())
+        ContentObject::new(PWSTR(vec![0].as_mut_ptr()))
     }
 
     // 获取parent对象下的所有对象的迭代器
@@ -144,7 +136,7 @@ impl Device {
         let enum_object_ids = unsafe {
             self.content.EnumObjects(
                     0,
-                    parent.id.clone().as_pwstr(),
+                    parent.id.clone(),
                     None,
                 )?
         };
@@ -172,7 +164,7 @@ impl Device {
             }
         }
         // 获取对象的属性值，上述key_collection中的属性值
-        let values = unsafe { self.properties.GetValues(object.id.clone().as_pwstr(), &key_collection)? };
+        let values = unsafe { self.properties.GetValues(object.id.clone(), &key_collection)? };
         // 从属性值中提取对象名称、对象类型、对象大小、是否隐藏、是否系统、是否可删除、创建时间、修改时间
         let name = unsafe { values.GetStringValue(&WPD_OBJECT_NAME)?.to_string()? };
         let content_type = unsafe { values.GetGuidValue(&WPD_OBJECT_CONTENT_TYPE)? };
@@ -222,7 +214,7 @@ impl Device {
         unsafe {
             self.resources
                 .GetStream(
-                    object.id.clone().as_pwstr(),
+                    object.id.clone(),
                     &WPD_RESOURCE_DEFAULT,
                     STGM_READ,
                     &mut buff_size,
@@ -243,14 +235,16 @@ impl Device {
         modified: &Option<String>,
     ) -> Result<ResourceWriter, Error> {
         let values: IPortableDeviceValues = unsafe { CoCreateInstance(&PortableDeviceValues, None, CLSCTX_ALL)? };
-        let mut name_buf = WStrBuf::from(name, true);
+        let mut name_buf: Vec<u16>  = name.encode_utf16().collect();
+        name_buf.push(0);
+
         unsafe {
             values
-                .SetStringValue(&WPD_OBJECT_PARENT_ID, parent.id.clone().as_pwstr())?;
+                .SetStringValue(&WPD_OBJECT_PARENT_ID, parent.id.clone())?;
             values
-                .SetStringValue(&WPD_OBJECT_NAME, name_buf.as_pwstr())?;
+                .SetStringValue(&WPD_OBJECT_NAME, PCWSTR(name_buf.as_ptr()))?;
             values
-                .SetStringValue(&WPD_OBJECT_ORIGINAL_FILE_NAME, name_buf.as_pwstr())?;
+                .SetStringValue(&WPD_OBJECT_ORIGINAL_FILE_NAME, PCWSTR(name_buf.as_ptr()))?;
             values
                 .SetGuidValue(&WPD_OBJECT_FORMAT, &WPD_OBJECT_FORMAT_ALL)?;
             values
@@ -298,37 +292,37 @@ impl Device {
     pub fn create_folder(&self, parent: &ContentObject, name: &str) -> Result<ContentObject, Error> {
         let values: IPortableDeviceValues = unsafe { CoCreateInstance(&PortableDeviceValues, None, CLSCTX_ALL)? };
         // name 转成 pwstr
-        let mut name_buf = WStrBuf::from(name, true);
+        let mut name_buf:Vec<u16> = name.encode_utf16().collect();
+        name_buf.push(0);
+
         unsafe {
             values
-                .SetStringValue(&WPD_OBJECT_PARENT_ID, parent.id.clone().as_pwstr())?;
+                .SetStringValue(&WPD_OBJECT_PARENT_ID, parent.id.clone())?;
             values
-                .SetStringValue(&WPD_OBJECT_NAME, name_buf.as_pwstr())?;
+                .SetStringValue(&WPD_OBJECT_NAME, PCWSTR(name_buf.as_ptr()))?;
             values
                 .SetGuidValue(&WPD_OBJECT_FORMAT, &WPD_OBJECT_FORMAT_ALL)?;
             values
                 .SetGuidValue(&WPD_OBJECT_CONTENT_TYPE, &WPD_CONTENT_TYPE_FOLDER)?;
         }
 
-        let mut object_id = WStrPtr::create();
+        let mut object_id = PWSTR::null();
         unsafe {
             self.content
-                .CreateObjectWithPropertiesOnly(&values, object_id.as_pwstr_mut_ptr())?;
+                .CreateObjectWithPropertiesOnly(&values, &mut object_id)?;
         }
-        let content_object = ContentObject::new(object_id.to_idstr());
+        let content_object = ContentObject::new(object_id);
 
         Ok(content_object)
     }
 
-    // 删除对象
     pub fn delete(&self, object: &ContentObject) -> Result<(), Error> {
-        let mut str = object.id.clone();
         unsafe {
+            let mut str = object.id.clone();
             let collection: IPortableDevicePropVariantCollection = CoCreateInstance(&PortableDevicePropVariantCollection, None, CLSCTX_ALL)?;
-            let propvariant = propvar::default();
             let mut var: PROPVARIANT = core::mem::zeroed();
             var.Anonymous.Anonymous.vt = 31; // VT_LPWSTR
-            var.Anonymous.Anonymous.Anonymous.pwszVal = str.as_pwstr().as_ptr();
+            var.Anonymous.Anonymous.Anonymous.pwszVal = str.0;
             let propvar = propvar::from_raw(var);
             collection.Add(&propvar)?;
             self.content.Delete(
@@ -336,8 +330,6 @@ impl Device {
                 &collection,
                 std::ptr::null_mut(),
             )?;
-            // 延长str的生命周期
-            std::mem::forget(str);
         }
         println!("delete object: {:?}", object.id);
         Ok(())
@@ -356,7 +348,7 @@ impl Drop for Device {
 
 pub struct ContentObjectIterator {
     enum_object_ids: IEnumPortableDeviceObjectIDs,
-    object_ids: Option<Vec<IDStr>>,
+    object_ids: Option<Vec<PWSTR>>,
     completed: bool,
 }
 
@@ -400,8 +392,8 @@ impl ContentObjectIterator {
         let mut object_ids_vec = object_ids
             .iter()
             .take(read as usize)
-            .map(|p| IDStr::from(*p))
-            .collect::<Vec<IDStr>>();
+            .map(|id| id.clone())
+            .collect::<Vec<PWSTR>>();
         object_ids_vec.reverse(); // for moving item out by pop()
         self.object_ids = Some(object_ids_vec);
 
@@ -422,7 +414,6 @@ mod tests {
     use crate::find::find_file_or_folder;
     use crate::path;
     use crate::wpd::manager::Manager;
-    use crate::wpd::utils::IDStr;
 
     #[test]
     fn create_folder_success() {

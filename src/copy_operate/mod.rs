@@ -49,7 +49,6 @@ pub fn do_copy(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match src_path_type {
         PathType::DeviceStorage => {
-            let storage_path = DeviceStoragePath::from(src_path)?;
             copy_to_device_storage(manager, src_path, destination_folder, dest_is_parent_folder, dest_name, recursive, mirror)
         }
         PathType::Local => {

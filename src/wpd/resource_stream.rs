@@ -1,10 +1,8 @@
 use windows::core::{Error, Interface};
 use windows::Win32::Devices::PortableDevices::IPortableDeviceDataStream;
-use windows::Win32::Foundation::STG_E_REVERTED;
 use windows::Win32::System::Com::{IStream, STGC_DEFAULT};
 use crate::common::file_reader::FileReader;
-use crate::wpd::utils::IDStr;
-use super::{device::ContentObject, utils::WStrPtr};
+use super::{device::ContentObject};
 
 // wpd 文件数据流读取器
 
@@ -115,6 +113,6 @@ impl ResourceWriter {
 
         let object_id = unsafe{data_stream.GetObjectID()?};
 
-        Ok(ContentObject::new(IDStr::from(object_id)))
+        Ok(ContentObject::new(object_id))
     }
 }

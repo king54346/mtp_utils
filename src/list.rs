@@ -1,5 +1,5 @@
 use windows::core::Error;
-use crate::find::device_iterate_file_or_folder;
+use crate::find::iterate_file_or_folder;
 use crate::path::DeviceStoragePath;
 use crate::wpd::device::{ContentObjectInfo, Device};
 use crate::wpd::manager::{DeviceInfo, Manager};
@@ -130,7 +130,7 @@ pub fn list_files(path: String, recursive: bool, detail: bool) -> Result<(), Box
         };
 
         for storage_object_info in storage_object_vec {
-            device_iterate_file_or_folder(
+            iterate_file_or_folder(
                 &device,
                 &device_info,
                 &storage_object_info,
@@ -144,7 +144,7 @@ pub fn list_files(path: String, recursive: bool, detail: bool) -> Result<(), Box
 }
 
 
-fn show_file_or_folder_with_details(info: &ContentObjectInfo, path: &str) -> Result<bool, Box<dyn std::error::Error>> {
+fn show_file_or_folder_with_details(info: &ContentObjectInfo, path: &str){
     println!(
         "[{:<4}] {:<19} {:<19} {}",
         if info.is_file() {
@@ -158,10 +158,8 @@ fn show_file_or_folder_with_details(info: &ContentObjectInfo, path: &str) -> Res
         if info.is_hidden { "H" } else { "-" },
         path
     );
-    Ok(true)
 }
 
-fn show_file_or_folder_path_only(_info: &ContentObjectInfo, path: &str) -> Result<bool, Box<dyn std::error::Error>> {
+fn show_file_or_folder_path_only(_info: &ContentObjectInfo, path: &str){
     println!("{}", path);
-    Ok(true)
 }

@@ -5,6 +5,7 @@ use crate::copy_operate::folder_operate::FolderOperate;
 use crate::wpd::device::{ContentObjectInfo, Device};
 use super::file_info::FileInfo;
 
+// 调用resource_stream中的FileReader
 pub struct DeviceFolder<'d> {
     device: &'d Device,
     // 文件夹对象信息

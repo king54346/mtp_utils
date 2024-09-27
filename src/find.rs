@@ -1,7 +1,7 @@
 use crate::common::path_matcher::{create_path_pattern_matcher, PathMatcher, PathMatchingState};
 use crate::list::{list_devices, list_device_storages};
 use crate::path::{DeviceStoragePath, SEPARATORS};
-use crate::wpd::device::{ContentObjectInfo, ContentObjectIterator, Device};
+use crate::wpd::device::{ContentObject, ContentObjectInfo, ContentObjectIterator, Device};
 use crate::wpd::manager::{DeviceInfo, Manager};
 
 // 查找设备存储
@@ -52,8 +52,7 @@ pub fn find_storage(manager: &Manager, storage_path: &DeviceStoragePath) -> Resu
 pub fn find_file_or_folder(manager: &Manager, storage_path: &DeviceStoragePath) -> Result<Option<(DeviceInfo, Device, ContentObjectInfo)>, Box<dyn std::error::Error>> {
     log::trace!("find_device_file_or_folder");
     // 尝试查找设备存储
-    if let Some((device_info, device, storage_object)) = find_storage(manager, storage_path)?
-    {
+    if let Some((device_info, device, storage_object)) = find_storage(manager, storage_path)?{
         log::trace!("find_device_file_or_folder: storage found");
         // 尝试查找文件或文件夹
         match find_device_storage_file_or_folder(
@@ -85,7 +84,7 @@ fn find_device_storage_file_or_folder(
     path: &str,
 ) -> Result<Option<(ContentObjectInfo, String)>, Box<dyn std::error::Error>> {
     let mut result: Option<(ContentObjectInfo, String)> = None;
-    device_iterate_file_or_folder(
+    iterate_file_or_folder(
         device,
         device_info,
         storage_object,
@@ -93,13 +92,13 @@ fn find_device_storage_file_or_folder(
         false,
         |content_object_info, path| {
             result = Some((content_object_info.clone(), String::from(path)));
-            Ok(false)
         },
     )?;
     Ok(result)
 }
-// todo recursive: 是否递归, callback: 回调函数
-pub fn device_iterate_file_or_folder<F>(
+// 获取storage的文件或文件夹
+//  recursive: 是否递归, callback: 回调函数,
+pub fn iterate_file_or_folder<F>(
     device: &Device,
     device_info: &DeviceInfo,
     storage_object: &ContentObjectInfo,
@@ -108,158 +107,103 @@ pub fn device_iterate_file_or_folder<F>(
     mut callback: F,
 ) -> Result<(), Box<dyn std::error::Error>>
     where
-        F: FnMut(&ContentObjectInfo, &str) -> Result<bool, Box<dyn std::error::Error>>,
+        F: FnMut(&ContentObjectInfo, &str),
 {
-    log::trace!("device_iterate_file_or_folder path={}", path);
+    log::trace!("device_iterate path={}", path);
+
     let root_path_matcher = create_path_pattern_matcher(path)?;
     let storage_path = format!("{}:{}:", &device_info.name, &storage_object.name);
-
     let (state, next_matcher) = root_path_matcher.matches_root();
     log::trace!("  matches_root state {:?}", &state);
+
     match state {
         PathMatchingState::Rejected => Ok(()),
         PathMatchingState::Completed => {
             let path = join_path(&storage_path, "");
             log::trace!("  call callback path={:?}", &path);
-            let continued = callback(storage_object, &path)?;
-            if continued && recursive {
+            callback(storage_object, &path);
+
+            if recursive {
                 log::trace!("  go recursively");
-                match device.get_object_iterator(&storage_object.content_object) {
-                    Err(err) => {
-                        log::debug!("{}", err);
-                        log::warn!("failed to open: {}", &storage_path);
-                    }
-                    Ok(iter) => {
-                        let matcher = PathMatcher::CompleteMatcher;
-                        let _ = device_iterate_file_or_folder_core(
-                            device,
-                            iter,
-                            &matcher,
-                            storage_path,
-                            recursive,
-                            &mut callback,
-                        )?;
-                    }
+                if let Some(iter) = get_object_iterator(device, &storage_object.content_object, &storage_path)? {
+                    iterate_file_or_folder_recursive(device, iter, &PathMatcher::CompleteMatcher, storage_path, &mut callback, recursive)?;
                 }
             }
             Ok(())
         }
         PathMatchingState::Accepted => {
-            match device.get_object_iterator(&storage_object.content_object) {
-                Err(err) => {
-
-                    log::debug!("{}", err);
-                    log::warn!("failed to open: {}", &storage_path);
-                }
-                Ok(iter) => {
-                    let _ = device_iterate_file_or_folder_core(
-                        device,
-                        iter,
-                        next_matcher.unwrap(),
-                        storage_path,
-                        recursive,
-                        &mut callback,
-                    )?;
-                }
+            if let Some(iter) = get_object_iterator(device, &storage_object.content_object, &storage_path)? {
+                iterate_file_or_folder_recursive(device, iter, next_matcher.unwrap(), storage_path, &mut callback, recursive)?;
             }
             Ok(())
         }
     }
 }
 
-fn device_iterate_file_or_folder_core<F>(
+fn get_object_iterator(
+    device: &Device,
+    content_object: &ContentObject,
+    storage_path: &str,
+) -> Result<Option<ContentObjectIterator>, Box<dyn std::error::Error>> {
+    match device.get_object_iterator(content_object) {
+        Err(err) => {
+            log::debug!("{}", err);
+            log::warn!("failed to open: {}", &storage_path);
+            Ok(None)
+        }
+        Ok(iter) => Ok(Some(iter)),
+    }
+}
+
+fn iterate_file_or_folder_recursive<F>(
     device: &Device,
     mut content_object_iterator: ContentObjectIterator,
     path_matcher: &PathMatcher,
     base_path: String,
-    recursive: bool,
     callback: &mut F,
-) -> Result<bool, Box<dyn std::error::Error>>
+    recursive: bool,
+) -> Result<(), Box<dyn std::error::Error>>
     where
-        F: FnMut(&ContentObjectInfo, &str) -> Result<bool, Box<dyn std::error::Error>>,
+        F: FnMut(&ContentObjectInfo, &str),
 {
-    log::trace!("device_iterate_file_or_folder_core start base_path={}", &base_path);
-    let mut continued = true;
+    log::trace!("device_iterate_recursive start base_path={}", &base_path);
+
     while let Some(content_object) = content_object_iterator.next()? {
         log::trace!("  detected {:?}", &content_object);
         let content_object_info = device.get_object_info(content_object)?;
         log::trace!("  details {:?}", &content_object_info);
+
         if !content_object_info.is_file() && !content_object_info.is_folder() {
             log::trace!("  --> skip");
             continue;
         }
 
-        let (state, next_matcher) =
-            path_matcher.matches(&content_object_info.name, content_object_info.is_folder());
+        let (state, next_matcher) = path_matcher.matches(&content_object_info.name, content_object_info.is_folder());
         log::trace!("  matching state {:?}", &state);
 
+        let next_base_path = join_path(&base_path, &content_object_info.name);
         match state {
             PathMatchingState::Rejected => (),
             PathMatchingState::Completed => {
-                let next_base_path = join_path(&base_path, &content_object_info.name);
                 log::trace!("  call callback path={:?}", &next_base_path);
-                continued = callback(&content_object_info, &next_base_path)?;
-                if !continued {
-                    break;
-                }
+                callback(&content_object_info, &next_base_path);
                 if recursive {
                     log::trace!("  go recursively");
-                    match device.get_object_iterator(&content_object_info.content_object) {
-                        Err(err) => {
-                            log::debug!("{}", err);
-                            log::warn!("failed to open: {}", &next_base_path);
-                        }
-                        Ok(iter) => {
-                            let matcher = PathMatcher::CompleteMatcher;
-                            continued = device_iterate_file_or_folder_core(
-                                device,
-                                iter,
-                                &matcher,
-                                next_base_path,
-                                recursive,
-                                callback,
-                            )?;
-                            if !continued {
-                                break;
-                            }
-                        }
+                    if let Some(iter) = get_object_iterator(device, &content_object_info.content_object, &next_base_path)? {
+                        iterate_file_or_folder_recursive(device, iter, &PathMatcher::CompleteMatcher, next_base_path, callback, recursive)?;
                     }
                 }
             }
             PathMatchingState::Accepted => {
-                let next_base_path = join_path(&base_path, &content_object_info.name);
-                match device.get_object_iterator(&content_object_info.content_object) {
-                    Err(err) => {
-                        log::debug!("{}", err);
-                        log::warn!("failed to open: {}", &next_base_path);
-                    }
-                    Ok(iter) => {
-                        let next_content_object_iterator = iter;
-                        continued = device_iterate_file_or_folder_core(
-                            device,
-                            next_content_object_iterator,
-                            next_matcher.unwrap(),
-                            next_base_path,
-                            recursive,
-                            callback,
-                        )?;
-                        if !continued {
-                            break;
-                        }
-                    }
+                if let Some(iter) = get_object_iterator(device, &content_object_info.content_object, &next_base_path)? {
+                    iterate_file_or_folder_recursive(device, iter, next_matcher.unwrap(), next_base_path, callback, recursive)?;
                 }
             }
         }
     }
-    log::trace!(
-        "device_iterate_file_or_folder_core {} base_path={}",
-        if continued { "end" } else { "stop" },
-        &base_path
-    );
-    Ok(continued)
+    log::trace!("device_iterate_recursive end base_path={}", &base_path);
+    Ok(())
 }
-
-
 
 fn join_path(base_path: &str, sub_path: &str) -> String {
     let mut s = String::from(base_path);

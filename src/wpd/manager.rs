@@ -2,7 +2,6 @@ use std::fmt::Debug;
 use windows::core::{Error, PWSTR};
 use windows::Win32::Devices::PortableDevices::{IPortableDeviceManager, PortableDeviceManager};
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
-use crate::wpd::utils::{IDStr, WStrBuf, WStrPtrArray};
 
 pub struct Manager {
     manager: IPortableDeviceManager,
@@ -10,7 +9,7 @@ pub struct Manager {
 
 #[derive(Debug)]
 pub struct DeviceInfo {
-    pub id: IDStr,
+    pub id: PWSTR,
     pub name: String,
 }
 
@@ -34,7 +33,8 @@ impl Manager {
         }
 
         // get device ids
-        let mut device_ids = WStrPtrArray::create(device_id_count);
+        let mut device_ids = Vec::<PWSTR>::new();
+        device_ids.resize(device_id_count as usize, PWSTR::null());
         unsafe {
             self.manager
                 .GetDevices(device_ids.as_mut_ptr(), &mut device_id_count)
@@ -43,20 +43,20 @@ impl Manager {
 
         Ok(DeviceInfoIterator::new(
             &self.manager,
-            device_ids.to_vec_all(),
+            device_ids,
         ))
     }
 }
 
 pub struct DeviceInfoIterator<'a> {
     manager: &'a IPortableDeviceManager,
-    device_ids: Vec<IDStr>,
+    device_ids: Vec<PWSTR>,
 }
 
 impl<'a> DeviceInfoIterator<'a> {
     fn new(
         manager: &'a IPortableDeviceManager,
-        mut device_ids: Vec<IDStr>,
+        mut device_ids: Vec<PWSTR>,
     ) -> DeviceInfoIterator<'a> {
         device_ids.reverse(); // for moving item out by pop()
         DeviceInfoIterator::<'a> {
@@ -66,7 +66,7 @@ impl<'a> DeviceInfoIterator<'a> {
     }
 
     pub fn next(&mut self) -> Result<Option<DeviceInfo>, Error> {
-        let mut device_id = match self.device_ids.pop() {
+        let device_id = match self.device_ids.pop() {
             Some(id) => id,
             None => return Ok(None),
         };
@@ -76,7 +76,7 @@ impl<'a> DeviceInfoIterator<'a> {
         unsafe {
             self.manager
                 .GetDeviceFriendlyName(
-                    device_id.as_pwstr(),
+                    device_id,
                     PWSTR::null(),
                     &mut name_buf_len as *mut u32,
                 )
@@ -84,18 +84,21 @@ impl<'a> DeviceInfoIterator<'a> {
         }
 
         // get name
-        let mut name_buf = WStrBuf::create(name_buf_len);
+        let mut name_buf: Vec<u16> = Vec::with_capacity(name_buf_len as usize);
+        let name:String;
         unsafe {
             self.manager
                 .GetDeviceFriendlyName(
-                    device_id.as_pwstr(),
-                    name_buf.as_pwstr(),
+                    device_id,
+                    PWSTR(name_buf.as_mut_ptr()),
                     &mut name_buf_len as *mut u32,
                 )
                 .ok();
+            name_buf.set_len(name_buf_len as usize);
+            name = String::from_utf16_lossy(&name_buf);
         }
 
-        let name = name_buf.to_string(name_buf_len - 1); // exclude null terminator
+
 
         Ok(Some(DeviceInfo {
             id: device_id,
